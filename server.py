@@ -31,6 +31,7 @@ lock_oferta = Lock()
 estado_global = manager.Namespace()
 estado_global.temporizador_proceso = None
 estado_global.temporizador_estado = manager.dict({'tiempo': 0})
+estado_global.ganador = None
 
 cola_de_comunicacion = multiprocessing.Queue()
 
@@ -206,7 +207,7 @@ def recibirOferta(valor, cliente, sv_socket, clientes, cola):
     global oferta, lock_oferta
     lock_oferta.acquire()
     try:
-        inicializarTemporizador(estado_global, cliente, clientes, sv_socket)
+        inicializarTemporizador(estado_global, sv_socket)
         
         if(10 - estado_global.temporizador_estado['tiempo'] > 0):
             if oferta["valor"] == 0 or valor > oferta["valor"]:
@@ -221,6 +222,7 @@ def recibirOferta(valor, cliente, sv_socket, clientes, cola):
                     pass
                 
                 estado_global.temporizador_estado['tiempo'] = 0
+                estado_global.ganador = cliente
                  
                 for ur in clientes:
                     try:
@@ -254,31 +256,25 @@ def asignarPuerto(client_add):
         response = "5000"
         server_socket.sendto(response.encode("utf-8"), client_add)
 
-def contarTiempo(temporizador, cliente, clientes, sv_socket):
+def contarTiempo(estado_global, sv_socket):
+    temporizador = estado_global.temporizador_estado
     temporizador['tiempo'] = 0
     while temporizador['tiempo'] < 10:
         time.sleep(1)
         temporizador['tiempo'] += 1
         print(f"Tiempo actual: {temporizador['tiempo']}")
     
-    for ur in clientes:
-        if cliente.nombre == ur.nombre:
-            try:
-                msg = "Felicidades, ha ganado la subasta!"
-                p = ur.port+50
-                print(p)
-                sv_socket.sendto(msg.encode("utf-8"), (ur.address, p))
-            except Exception as e:
-                print(f"No se pudo notifiacar al ganador {e}")
-            
-            break
-
+    ur = estado_global.ganador
+    p = ur.port+50
+    print(p)
+    msg = "Felicididades, ha ganado la subasta!"
+    sv_socket.sendto(msg.encode("utf-8"), (ur.address, p))
+    
     print("Finalizó el tiempo")
 
-def inicializarTemporizador(estado_global, cliente, clientes, sv_socket):
+def inicializarTemporizador(estado_global, sv_socket):
     if estado_global.temporizador_proceso is None or not estado_global.temporizador_proceso:
-        temporizador = estado_global.temporizador_estado
-        proceso = multiprocessing.Process(target=contarTiempo, args=(temporizador, cliente, clientes, sv_socket,))
+        proceso = multiprocessing.Process(target=contarTiempo, args=(estado_global, sv_socket,))
         proceso.start()
         estado_global.temporizador_proceso = True
         print("Temporizador iniciado.")
