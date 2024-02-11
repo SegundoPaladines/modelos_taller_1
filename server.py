@@ -176,8 +176,11 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
                 response = f"{puerto}@{cliente.nombre}: La puja comienza en $5000"
             else:
                 # imprimir oferta
-                response = f"{puerto}@{cliente.nombre}: Mejor oferta: {oferta['user']} <- ${oferta['valor']} Tiempo restante para ofertar: {10 - estado_global.temporizador_estado['tiempo']}"
-                
+                if(10 - estado_global.temporizador_estado['tiempo']>0):
+                    response = f"{puerto}@{cliente.nombre}: Mejor oferta: ${oferta['valor']} Tiempo restante para ofertar: {10 - estado_global.temporizador_estado['tiempo']}"
+                else:
+                    response = f"{puerto}@{cliente.nombre}: El tiempo se terminó - Ganador: {oferta['user']} <- ${oferta['valor']}"
+                    
         elif comando.startswith("o "):
             client = None
             for c in clientes:
@@ -209,7 +212,7 @@ def recibirOferta(valor, cliente, sv_socket, clientes, cola):
             if oferta["valor"] == 0 or valor > oferta["valor"]:
                 oferta["user"] = cliente.nombre
                 oferta["valor"] = valor
-                msg = f"{cliente.nombre} acaba de subir la oferta a {valor}:"
+                msg = f"La oferta subió a ${valor}:"
                 try:
                     nuevos_clientes, nuevos_ocupados = cola.get_nowait()
                     clientes[:] = nuevos_clientes
@@ -267,6 +270,8 @@ def contarTiempo(temporizador, cliente, clientes, sv_socket):
                 sv_socket.sendto(msg.encode("utf-8"), (ur.address, p))
             except Exception as e:
                 print(f"No se pudo notifiacar al ganador {e}")
+            
+            break
 
     print("Finalizó el tiempo")
 
