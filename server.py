@@ -97,7 +97,7 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
                 """
                 sv_socket.sendto(response.encode("utf-8"), client_add)
                 cliente.address = client_add[0]
-                cliente.port = client_add[1]
+                cliente.port = puerto
 
                 clientes.append(cliente)
             break
@@ -112,7 +112,7 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
                 sv_socket.sendto(response.encode("utf-8"), client_add)
                 data, client_add = sv_socket.recvfrom(1024)
 
-                cliente = User(usr, data.decode("utf-8"), client_add[0], client_add[1])
+                cliente = User(usr, data.decode("utf-8"), client_add[0], puerto)
                 clientes.append(cliente)
 
                 response = f"""
