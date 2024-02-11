@@ -3,26 +3,34 @@ import multiprocessing
 import os
 from multiprocessing import Lock
 from user import User
-from oferta import Oferta
+import time
 
-# Configuración del servidor
+# configuracion
 host = "127.0.0.1"
 port = 5000
 
-# Crear el socket UDP
+# crear el socket
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-# Enlazar el socket a la dirección IP y el puerto
+# enalzer direccion ip y puerto
 server_socket.bind((host, port))
 
 print("Escuchando por el puerto 5000...")
 
-# Utilizamos un multiprocessing.Manager para crear listas compartidas
+# variables compartidas
 manager = multiprocessing.Manager()
 clientes = manager.list([User("Segundo","123","127.0.0.1", 5001)])
 ocupados = manager.list([5000, 5001])
 oferta = manager.dict({"user": None, "valor": 5000})
+temporizador_proceso = None
+temporizador_estado = None
+
 lock_oferta = Lock()
+
+#manejo del tiempo
+estado_global = manager.Namespace()
+estado_global.temporizador_proceso = None
+estado_global.temporizador_estado = manager.dict({'tiempo': 0})
 
 cola_de_comunicacion = multiprocessing.Queue()
 
@@ -60,7 +68,7 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
             nuevos_clientes = [u for u in clientes if u.nombre != cliente.nombre]
             clientes[:] = nuevos_clientes
             
-            # Pedir contraseña
+            # pedir contraseña
             response = f"Contraseña para {cliente.nombre}"
             sv_socket.sendto(response.encode("utf-8"), client_add)
             data, client_add = sv_socket.recvfrom(1024)
@@ -70,7 +78,7 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
             else:
                 contador = 1
                 while cliente.password != data.decode("utf-8") and contador < 3:
-                    # Pedir contraseña
+                    # pedir contraseña
                     response = f"Contraseña incorrecta, intente denuevo"
                     sv_socket.sendto(response.encode("utf-8"), client_add)
                     data, client_add = sv_socket.recvfrom(1024)
@@ -143,7 +151,7 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
 
         data, client_add = sv_socket.recvfrom(1024)
 
-        # Muestra el mensaje del cliente
+        # manejo del cliente
         print(f"Cliente ({client_add[0]}:{client_add[1]}): {data}")
 
         comando = data.decode("utf-8")
@@ -167,7 +175,8 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
             if oferta is None:
                 response = f"{puerto}@{cliente.nombre}: La puja comienza en $5000"
             else:
-                response = f"{puerto}@{cliente.nombre}: Mejor oferta: {oferta['user']} <- ${oferta['valor']}"
+                # imprimir oferta
+                response = f"{puerto}@{cliente.nombre}: Mejor oferta: {oferta['user']} <- ${oferta['valor']} Tiempo restante para ofertar: {10 - estado_global.temporizador_estado['tiempo']}"
                 
         elif comando.startswith("o "):
             client = None
@@ -176,8 +185,7 @@ def escucharPuerto(puerto, client_add, cola, clientes, ocupados):
                     client = c
                     
             if client is not None:
-                response = ""
-                recibirOferta(int(comando.split()[1]), client, sv_socket, clientes, cola)
+                response = recibirOferta(int(comando.split()[1]), client, sv_socket, clientes, cola)
             else:
                 response = f"Error al recibir oferta {int(comando.split()[1])}" 
         else:
@@ -195,25 +203,33 @@ def recibirOferta(valor, cliente, sv_socket, clientes, cola):
     global oferta, lock_oferta
     lock_oferta.acquire()
     try:
-        if oferta["valor"] == 0 or valor > oferta["valor"]:
-            oferta["user"] = cliente.nombre
-            oferta["valor"] = valor
-            msg = f"{cliente.nombre} acaba de subir la oferta a {valor}:"
-            
-            try:
-                nuevos_clientes, nuevos_ocupados = cola.get_nowait()
-                clientes[:] = nuevos_clientes
-                ocupados[:] = nuevos_ocupados
-            except Exception:
-                pass
-            
-            for ur in clientes:
+        inicializarTemporizador(estado_global, cliente, clientes, sv_socket)
+        
+        if(10 - estado_global.temporizador_estado['tiempo'] > 0):
+            if oferta["valor"] == 0 or valor > oferta["valor"]:
+                oferta["user"] = cliente.nombre
+                oferta["valor"] = valor
+                msg = f"{cliente.nombre} acaba de subir la oferta a {valor}:"
                 try:
-                    p = ur.port+50
-                    print(p)
-                    sv_socket.sendto(msg.encode("utf-8"), (ur.address, p))
-                except Exception as e:
-                    print(f"Error al enviar notificación de oferta a {ur.nombre}: {e}")
+                    nuevos_clientes, nuevos_ocupados = cola.get_nowait()
+                    clientes[:] = nuevos_clientes
+                    ocupados[:] = nuevos_ocupados
+                except Exception:
+                    pass
+                
+                estado_global.temporizador_estado['tiempo'] = 0
+                 
+                for ur in clientes:
+                    try:
+                        p = ur.port+50
+                        print(p)
+                        sv_socket.sendto(msg.encode("utf-8"), (ur.address, p))
+                    except Exception as e:
+                        print(f"Error al enviar notificación de oferta a {ur.nombre}: {e}")
+            
+            return ""
+        else:
+            return f"La subasta ya finalizo: Ganador: {oferta['user']} <- ${oferta['valor']}"
     finally:
         lock_oferta.release()
         
@@ -235,15 +251,38 @@ def asignarPuerto(client_add):
         response = "5000"
         server_socket.sendto(response.encode("utf-8"), client_add)
 
+def contarTiempo(temporizador, cliente, clientes, sv_socket):
+    temporizador['tiempo'] = 0
+    while temporizador['tiempo'] < 10:
+        time.sleep(1)
+        temporizador['tiempo'] += 1
+        print(f"Tiempo actual: {temporizador['tiempo']}")
+    
+    for ur in clientes:
+        if cliente.nombre == ur.nombre:
+            try:
+                msg = "Felicidades, ha ganado la subasta!"
+                p = ur.port+50
+                print(p)
+                sv_socket.sendto(msg.encode("utf-8"), (ur.address, p))
+            except Exception as e:
+                print(f"No se pudo notifiacar al ganador {e}")
+
+    print("Finalizó el tiempo")
+
+def inicializarTemporizador(estado_global, cliente, clientes, sv_socket):
+    if estado_global.temporizador_proceso is None or not estado_global.temporizador_proceso:
+        temporizador = estado_global.temporizador_estado
+        proceso = multiprocessing.Process(target=contarTiempo, args=(temporizador, cliente, clientes, sv_socket,))
+        proceso.start()
+        estado_global.temporizador_proceso = True
+        print("Temporizador iniciado.")
+    else:
+        print("El temporizador ya está en ejecución.")
+    
 while True:
-    # Obtener los datos del cliente
     data, client_add = server_socket.recvfrom(1024)
-
-    # Decodificar los datos
     message = data.decode("utf-8")
-
-    # Muestra el mensaje del cliente
     print(f"Cliente ({client_add[0]}:{client_add[1]}): Iniciando Sesión...")
-
     asignarPuerto(client_add)
     

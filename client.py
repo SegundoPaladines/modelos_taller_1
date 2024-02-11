@@ -31,7 +31,7 @@ def recibirMensaje(new_port):
             mensaje = f"server@{server_addr[0]}:{server_addr[1]} -> {response.decode('utf-8')}"
             mensajes_queue.put(mensaje)
         except socket.timeout:
-             mensajes_queue.put("no hay mensaje")
+            pass
 
 def getPort():
     message = "port"
